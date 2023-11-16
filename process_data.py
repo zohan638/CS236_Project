@@ -1,12 +1,12 @@
 import re
 from collections import Counter
 from nltk.tokenize import sent_tokenize
-import json
+import tqdm
 # import nltk
 # nltk.download('punkt')
 
 # Step 1: Find the top 100 words in the dataset
-def get_top_words(dataset, top_n=int(1e4)):
+def get_top_words(dataset, top_n=int(1e3)):
     words = re.findall(r'\w+', dataset.lower())
     word_freq = Counter(words)
     top_words = [word for word, _ in word_freq.most_common(top_n)]
@@ -23,7 +23,14 @@ def extract_sentences(dataset):
 # Step 4: Append sentences with <s> and </s>
 def append_tags(sentences, vocab):
     processed_sentences = []
-    for sentence in sentences:
+    for sentence in tqdm.tqdm(sentences):
+        # processed_sentence = ''
+        # for word in sentence.lower().split():
+        #     if vocab[word]:
+        #         processed_sentence += ' '.join(word)
+        #     else:
+        #         processed_sentence += ' '.join('<UNK>')
+                
         processed_sentence = ' '.join(word if word in vocab else '<UNK>' for word in sentence.lower().split())
         processed_sentences.append('<s> ' + processed_sentence + ' </s>')
     return processed_sentences
@@ -44,7 +51,10 @@ sentences = extract_sentences(dataset)
 # processed_sentences = replace_with_unk(sentences, top_words)
 
 # Step 4
-tagged_sentences = append_tags(sentences, top_words)
+vocab_dict = {}
+for top_word in top_words:
+    vocab_dict[top_word] = True
+tagged_sentences = append_tags(sentences, vocab_dict)
 
 # Save vocab to a .voc file
 with open('data/text8_vocab.voc', 'wb') as vocab_file:

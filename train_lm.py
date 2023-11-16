@@ -20,9 +20,9 @@ def make_folder_for_file(fileName):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Train a simple auto-regressive recurrent LM')
-    parser.add_argument('--input_file', metavar='FILE', default=None, help='Full path to a file containing normalised sentences')
-    parser.add_argument('--output_file', metavar='FILE', default=None, help='Full path to the output model file as a torch serialised object')
-    parser.add_argument('--vocabulary',metavar='FILE',default=None,help='Full path to a file containing the vocabulary words')
+    parser.add_argument('--input_file', metavar='FILE', default='data/text8_sentences.list', help='Full path to a file containing normalised sentences')
+    parser.add_argument('--output_file', metavar='FILE', default='output/final_model.pytorch', help='Full path to the output model file as a torch serialised object')
+    parser.add_argument('--vocabulary',metavar='FILE',default='data/text8_vocab.voc',help='Full path to a file containing the vocabulary words')
     parser.add_argument('--cv_percentage',default=0.1,type=float,help='Amount of data to use for cross-validation')
     parser.add_argument('--epochs',type=int,default=10,help='Number of epochs to train')
     parser.add_argument('--batch_size',type=int,default=32,help='Batch size')
