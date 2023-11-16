@@ -33,7 +33,7 @@ def parse_arguments():
     parser.add_argument('--seed',type=float,default=0,help='Random seed')
     parser.add_argument('--bptt',type=int,default=sys.maxsize,help='Length of segments for Truncated Back-Propagation Through Time')
     parser.add_argument('--max_length',type=int,default=sys.maxsize,help='Maximum length of sequences to use (longer sequences are discarded)')
-    parser.add_argument('--ltype',type=str,default='lstm',help='Type of hidden layers to use ("rnn", "gru", "lstm")')
+    parser.add_argument('--ltype',type=str,default='rnn',help='Type of hidden layers to use ("rnn", "gru", "lstm")')
     parser.add_argument('--nonlinearity',type=str,default='relu',help='Non-linear function used in the recurrent layersi (for RNN)')
     parser.add_argument('--start_token',type=str,default='<s>',help='Word token used at the beginning of a sentence')
     parser.add_argument('--end_token',type=str,default='<\s>',help='Word token used at the end of a sentence')
