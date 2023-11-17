@@ -14,8 +14,8 @@ warnings.filterwarnings('ignore')
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Test the simple auto-regressive recurrent LM calculating perplexity for test sentences ')
-    parser.add_argument('--input_file', metavar='FILE', default=None, help='Full path to a file containing normalised sentences')
-    parser.add_argument('--model_file', metavar='FILE', default=None, help='Full path to trained serialised model')
+    parser.add_argument('--input_file', metavar='FILE', default='./data/text8_sentences.list', help='Full path to a file containing normalised sentences')
+    parser.add_argument('--model_file', metavar='FILE', default='./output/final_model.pytorch', help='Full path to trained serialised model')
     parser.add_argument('--batch_size',type=int,default=64,help='Batch size')
     parser.add_argument('--verbose',default=0,type=int,choices=[0,1,2],help='Verbosity level (0, 1 or 2)')
     args = parser.parse_args()

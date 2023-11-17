@@ -3,6 +3,7 @@ import os
 import random
 from tqdm import tqdm
 import argparse
+import gc
 
 from utils.rnnlm_func import load_data, build_model, train_model, validate_model
 from utils.lm_func import read_vocabulary, count_sequences
@@ -13,6 +14,11 @@ import torch.nn as nn
 import warnings
 warnings.filterwarnings('ignore')
 
+#import multiprocessing as mp
+#mp.Queue(1000)
+
+os.environ['COMMANDLINE_ARGS'] = '--no-half'
+
 def make_folder_for_file(fileName):
     folder = os.path.dirname(fileName)
     if folder != '' and not os.path.isdir(folder):
@@ -20,11 +26,11 @@ def make_folder_for_file(fileName):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Train a simple auto-regressive recurrent LM')
-    parser.add_argument('--input_file', metavar='FILE', default='data/text8_sentences.list', help='Full path to a file containing normalised sentences')
-    parser.add_argument('--output_file', metavar='FILE', default='output/final_model.pytorch', help='Full path to the output model file as a torch serialised object')
-    parser.add_argument('--vocabulary',metavar='FILE',default='data/text8_vocab.voc',help='Full path to a file containing the vocabulary words')
+    parser.add_argument('--input_file', metavar='FILE', default='data/dailymail_cnn.list', help='Full path to a file containing normalised sentences')
+    parser.add_argument('--output_file', metavar='FILE', default='output/dailymail_cnn1.pytorch', help='Full path to the output model file as a torch serialised object')
+    parser.add_argument('--vocabulary',metavar='FILE',default='data/dailymail_cnn.voc',help='Full path to a file containing the vocabulary words')
     parser.add_argument('--cv_percentage',default=0.1,type=float,help='Amount of data to use for cross-validation')
-    parser.add_argument('--epochs',type=int,default=10,help='Number of epochs to train')
+    parser.add_argument('--epochs',type=int,default=3,help='Number of epochs to train')
     parser.add_argument('--batch_size',type=int,default=32,help='Batch size')
     parser.add_argument('--embedding_size',type=int,default=128,help='Size of the embedding layer')
     parser.add_argument('--hidden_size',type=int,default=128,help='Size of the hidden recurrent layers')
@@ -32,13 +38,14 @@ def parse_arguments():
     parser.add_argument('--learning_rate',type=float,default=0.1,help='Learning rate')
     parser.add_argument('--seed',type=float,default=0,help='Random seed')
     parser.add_argument('--bptt',type=int,default=sys.maxsize,help='Length of segments for Truncated Back-Propagation Through Time')
-    parser.add_argument('--max_length',type=int,default=sys.maxsize,help='Maximum length of sequences to use (longer sequences are discarded)')
+    parser.add_argument('--max_length',type=int,default=30,help='Maximum length of sequences to use (longer sequences are discarded)')
     parser.add_argument('--ltype',type=str,default='rnn',help='Type of hidden layers to use ("rnn", "gru", "lstm")')
     parser.add_argument('--nonlinearity',type=str,default='relu',help='Non-linear function used in the recurrent layersi (for RNN)')
     parser.add_argument('--start_token',type=str,default='<s>',help='Word token used at the beginning of a sentence')
     parser.add_argument('--end_token',type=str,default='<\s>',help='Word token used at the end of a sentence')
     parser.add_argument('--unk_token',type=str,default='<UNK>',help='Word token used for out-of-vocabulary words')
-    parser.add_argument('--verbose',default=0,type=int,choices=[0,1,2],help='Verbosity level (0, 1 or 2)')
+    parser.add_argument('--verbose',default=1,type=int,choices=[0,1,2],help='Verbosity level (0, 1 or 2)')
+    
     args = parser.parse_args()
     args = vars(args)
     return args
@@ -50,6 +57,8 @@ def train_lm(args):
     torch.cuda.manual_seed(args['seed'])
     torch.backends.cudnn.deterministic = True
     args['device'] = torch.device(('cuda:0' if torch.cuda.is_available() else 'cpu'))
+    #args['device'] = torch.device('mps')
+    gc.collect()
 
     #Read vocabulary, sentences and load data
     args['vocab'],args['characters'] = read_vocabulary(**args)
@@ -69,7 +78,7 @@ def train_lm(args):
         print('\n')
 
     #Train epochs
-    for ep in range(1,args['epochs']+1):
+    for ep in tqdm(range(1,args['epochs']+1)):
         if args['verbose'] == 2:
             print('Epoch {0:d} of {1:d}'.format(ep,args['epochs']))
         loss = train_model(trainset,model,optimizer,criterion,**args)
@@ -83,7 +92,7 @@ def train_lm(args):
         make_folder_for_file(nfile)
         torch.save(model,nfile)
     if args['verbose'] == 0:
-        print('Final training loss: {0:.2f}, cross-validation accuracy: {1:.2f}%'.format(loss,acc))
+        print('Final training loss: {0:.2f}, cross-validation perplexity: {1:.2f}%'.format(loss, ppl))
 
     #Save final models
     model.cpu_hidden()

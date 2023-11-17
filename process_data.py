@@ -1,15 +1,17 @@
 import re
 from collections import Counter
+import nltk
 from nltk.tokenize import sent_tokenize
 import tqdm
-# import nltk
-# nltk.download('punkt')
+#nltk.download('punkt')
 
-# Step 1: Find the top 100 words in the dataset
-def get_top_words(dataset, top_n=int(1e3)):
+# Step 1: Find the top words in the dataset
+def get_top_words(dataset, top_n=int(1000)):
+    dataset = re.sub(r'\d', '', dataset)
     words = re.findall(r'\w+', dataset.lower())
     word_freq = Counter(words)
     top_words = [word for word, _ in word_freq.most_common(top_n)]
+    # top_words += ['.',',','!', '?','+', '-', '(', ')', '$', '%', '&', ':', ';', '=', '@', '^', '_', '~']
     return top_words
 
 # # Step 2: Replace words other than vocab with <UNK>
@@ -30,13 +32,14 @@ def append_tags(sentences, vocab):
         #         processed_sentence += ' '.join(word)
         #     else:
         #         processed_sentence += ' '.join('<UNK>')
-                
-        processed_sentence = ' '.join(word if word in vocab else '<UNK>' for word in sentence.lower().split())
+        symbols = r'[.,!?+\-()$%&:;=@^_~]'
+        modified_sentence = re.sub(f'({symbols})', r' \1 ', sentence)
+        processed_sentence = ' '.join(word if word in vocab else '<UNK>' for word in modified_sentence.lower().split())
         processed_sentences.append('<s> ' + processed_sentence + ' </s>')
     return processed_sentences
 
 # Example usage
-with open('data\enwik8', 'r', encoding='utf-8') as file:
+with open('data/enwik8', 'r', encoding='utf-8') as file:
     dataset = file.read()
 
 # Step 1

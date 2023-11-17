@@ -243,7 +243,8 @@ def sample_model(model,**kwargs):
                         probs.append(posteriors[kwargs['vocab'][kwargs['end_token']]].numpy())
                         break
                 #Append the new word and update end of sentence probability
-                X = np.asscalar(next_idx)*torch.ones((1,1),dtype=torch.long)
+                # X = np.asscalar(next_idx)*torch.ones((1,1),dtype=torch.long)
+                X = next_idx.item() * torch.ones((1, 1), dtype=torch.long)
                 words.append(kwargs['vocab_list'][int(next_idx)])
                 orig_words.append(kwargs['vocab_list'][int(next_idx)])
                 probs.append(posteriors[next_idx].numpy())
