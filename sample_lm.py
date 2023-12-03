@@ -14,14 +14,14 @@ warnings.filterwarnings('ignore')
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Test the simple recurrent LM by generating sentences sampled from the LM')
-    parser.add_argument('--model_file', metavar='FILE', default='./output/final_model4.pytorch', help='Full path to trained serialised model')
+    parser.add_argument('--model_file', metavar='FILE', default='./output/dailymail_cnn_shrey.pytorch', help='Full path to trained serialised model')
     parser.add_argument('--num_sequences',type=int,default=10,help='Number of sentences to generate')
     parser.add_argument('--seed',type=int,default=0,help='Seed to initialise the pseudo-random generators')
-    parser.add_argument('--topk',type=int,default=60,help='Number words with the highest probability from which to draw the next word')
-    parser.add_argument('--distribution',type=str,default='exponential',help='Type of distribution to draw the next word from (exponential or uniform)')
+    parser.add_argument('--topk',type=int,default=100,help='Number words with the highest probability from which to draw the next word')
+    parser.add_argument('--distribution',type=str,default='uniform',help='Type of distribution to draw the next word from (exponential or uniform)')
     parser.add_argument('--end_prob',type=float,default=0.1,help='Initial probability to end a sentence')
     parser.add_argument('--end_prob_rate',type=float,default=1.05,help='Increase of the probability to end a sentence for each new word')
-    parser.add_argument('--start_with',type=str,default='the united states is',help='Initial sequence of words for the generated sequences')
+    parser.add_argument('--start_with',type=str,default='apple',help='Initial sequence of words for the generated sequences')
     parser.add_argument('--verbose',default=0,type=int,choices=[0,1,2],help='Verbosity level (0, 1 or 2)')
     args = parser.parse_args()
     args = vars(args)
@@ -46,7 +46,7 @@ def sample_lm(args):
     logprob,total = sample_model(model,**args)
     ppl = math.pow(10.0,-logprob/total)
     print('file {0:s}: {1:d} sentences, {2:d} words'.format(args['model_file'],args['num_sequences'],total))
-    print('logprob = {0:.2f}, ppl = {1:.2f}'.format(logprob,ppl))
+    #print('logprob = {0:.2f}, ppl = {1:.2f}'.format(logprob,ppl))
 
 if __name__ == '__main__':
     args = parse_arguments()

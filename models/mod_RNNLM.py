@@ -3,10 +3,10 @@ import torch
 import torch.nn as nn
 import sys
 
-class RNNLM(nn.Module):
+class ModRNNLM(nn.Module):
     def __init__(self, **kwargs):
         
-        super(RNNLM, self).__init__()
+        super(ModRNNLM, self).__init__()
         #Base variables
         self.vocab = kwargs['vocab']
         self.in_dim = len(self.vocab)
@@ -21,24 +21,29 @@ class RNNLM(nn.Module):
         
         #Define the embedding layer
         self.embed = nn.Embedding(self.in_dim+1,self.embed_dim,padding_idx=self.in_dim)
+        # self.embed = nn.Embedding(num_embeddings = vocab size + 1, embedding_dim = 128, padding_idx = vocab size)
         
         #Define the RNN layer
         self.rnn= nn.RNN(input_size=self.embed_dim,hidden_size=self.hid_dim,num_layers=self.n_layers,nonlinearity=self.nonlinearity.lower())
+        # self.rnn= nn.RNN(input_size=128, hidden_size=128, num_layers=1, nonlinearity='relu')
         
         #Define the output layer
-        self.linear = nn.Linear(self.hid_dim,self.in_dim)
+        self.linear = nn.Linear(self.hid_dim, self.in_dim)
+        # W_hidden -> x
         
         #Define the softmax layer
         self.softmax = nn.LogSoftmax(dim=1)
+        # x_logits -> log(p(x))
         
     def init_weights(self):
         #Randomly initialise all parameters
         torch.nn.init.xavier_uniform_(self.embed.weight)
         for i in range(self.n_layers):
-            torch.nn.init.xavier_uniform_(getattr(self.rnn,'weight_hh_l'+str(i)))
-            torch.nn.init.xavier_uniform_(getattr(self.rnn,'weight_ih_l'+str(i)))
-            torch.nn.init.uniform_(getattr(self.rnn,'bias_hh_l'+str(i)))
-            torch.nn.init.uniform_(getattr(self.rnn,'bias_ih_l'+str(i)))
+            self.rnn.weight_hh_l
+            torch.nn.init.xavier_uniform_(getattr(self.rnn, f'weight_hh_l{i}'))
+            torch.nn.init.xavier_uniform_(getattr(self.rnn, f'weight_ih_l{i}'))
+            torch.nn.init.uniform_(getattr(self.rnn, f'bias_hh_l{i}'))
+            torch.nn.init.uniform_(getattr(self.rnn, f'bias_ih_l{i}'))
         torch.nn.init.xavier_uniform_(self.linear.weight)
         torch.nn.init.uniform_(self.linear.bias)
     
@@ -50,10 +55,11 @@ class RNNLM(nn.Module):
 
         #Pack the sequences for RNN
         packed = torch.nn.utils.rnn.pack_padded_sequence(emb, lengths)
-
-        #Forward the LSTM
-        packed_rec, self.hidden = self.rnn(packed,self.hidden)
         
+        #Forward the LSTM
+        packed_rec, self.hidden = self.rnn(packed, self.hidden)
+        # x_input -> z_logits
+
         #Unpack the sequences
         rec, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_rec)
         #Hidden outputs are (LxBxself.hidden_size)

@@ -69,11 +69,6 @@ def train_model(trainset,model,optimizer,criterion,**kwargs):
             mask = mask.to(kwargs['device'])
             #Reorder the batch by sequence length
             X,Y,mask,ordered_seq_length,_ = process_batch(X,mask,seq_length)
-            print('--------------  DEBUG  ----------------')
-            print(X)
-            print(X.shape)
-            print(X.size(1))
-            print('--------------END DEBUG----------------')
             model.init_hidden(X.size(1))
             while ordered_seq_length[0]>0:
                 #Loop, doing multiple passes with truncated sequences (if truncated bptt is used)
