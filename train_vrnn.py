@@ -24,14 +24,14 @@ def make_folder_for_file(fileName):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Train a simple auto-regressive recurrent LM')
     parser.add_argument('--input_file', metavar='FILE', default='data/dailymail_cnn.list', help='Full path to a file containing normalised sentences')
-    parser.add_argument('--output_file', metavar='FILE', default='output/dailymail_cnn.pytorch', help='Full path to the output model file as a torch serialised object')
+    parser.add_argument('--output_file', metavar='FILE', default='dailymail_cnn(1)', help='Full path to the output model file as a torch serialised object')
     parser.add_argument('--vocabulary',metavar='FILE',default='data/dailymail_cnn.voc',help='Full path to a file containing the vocabulary words')
     parser.add_argument('--n_epochs',type=int,default=25,help='Number of epochs to train')
     parser.add_argument('--batch_size',type=int,default=8,help='Batch size')
     parser.add_argument('--embedding_size',type=int,default=128,help='Size of the embedding layer')
     parser.add_argument('--h_dim',type=int,default=256,help='Size of the hidden recurrent layers')
     parser.add_argument('--n_layers',type=int,default=1,help='Number of recurrent layers')
-    parser.add_argument('--learning_rate',type=float,default=1e-3,help='Learning rate')
+    parser.add_argument('--learning_rate',type=float,default=.001,help='Learning rate')
     parser.add_argument('--seed',type=float,default=128,help='Random seed')
     parser.add_argument('--max_length',type=int,default=20,help='Maximum length of sequences to use (longer sequences are discarded)')
     parser.add_argument('--start_token',type=str,default='<s>',help='Word token used at the beginning of a sentence')
@@ -64,26 +64,47 @@ def calculate_lengths(batch, padding_idx):
     lengths = (batch != padding_idx).sum(dim=1)
     return lengths
 
-def train_model(model, data_loader, device, epochs):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)  # Adjust learning rate as needed
+def train_model(model, data_loader, device, learning_rate, epochs):
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     model.train()
     for epoch in range(epochs):
         total_loss = 0
+        total_kld_loss = 0
+        total_nll_loss = 0
         for batch in tqdm(data_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             batch = batch.to(device)
+            batch = batch.squeeze().transpose(0, 1)
             optimizer.zero_grad()
             lengths = calculate_lengths(batch, 1)
             kld_loss, nll_loss, _, _ = model(batch, lengths=lengths) 
-            loss = kld_loss + nll_loss
+            loss = 10 * kld_loss + nll_loss
             loss.backward()
             optimizer.step()
 
             nn.utils.clip_grad_norm_(model.parameters(), args['clip'])
             # print(f"KLD Loss: {kld_loss.item()}, NLL Loss: {nll_loss.item()}")
+            total_kld_loss += kld_loss.item()
+            total_nll_loss += nll_loss.item()
             total_loss += loss.item()
-        print(f"Epoch {epoch+1}, Loss: {round(total_loss / len(data_loader))}")
-        sample_embedding, sample_string = model.sample(20)
-        print(f"Sample: {sample_string}")
+        print(f"Epoch {epoch+1}, KLD Loss: {round(total_kld_loss / len(data_loader), 2)}, Recon Loss: {round(total_nll_loss / len(data_loader))}, Loss: {round(total_loss / len(data_loader))}")
+
+        # save model
+        save_every = 1
+        if epoch % save_every == 0:
+            fn = f'output/intermediate/vrnn_{args["output_file"]}_{epoch}.pth'
+            torch.save(model.state_dict(), fn)
+            print('Saved model to '+fn)
+
+        for i in range(2):
+            random_integer = random.randint(40, 60)
+            sample_embedding, sample_string = model.sample(random_integer)
+            print(f"Sample {i+1}: {sample_string}")
+
+        print('\n')
+
+    # Save final model
+    fn = f'output/vrnn_{args["output_file"]}_final.pth'
+    torch.save(model.state_dict(), fn)
 
 if __name__ == '__main__':
     args = parse_arguments()
@@ -94,7 +115,8 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(args['seed'])
     torch.backends.cudnn.deterministic = True
     args['device'] = torch.device(('cuda:0' if torch.cuda.is_available() else 'cpu'))
-
+    if os.path.exists('output/intermediate') is False:
+        os.makedirs('output/intermediate')
     # Load padded sentences
     padded_sentences = np.load('data/vrnn_padded_sentences.npy')
 
@@ -107,13 +129,13 @@ if __name__ == '__main__':
 
     # Create data loader
     dataset = TextDataset(padded_sentences_tensor)
-    data_loader = DataLoader(dataset, batch_size=32, shuffle=False)  # Adjust batch size as needed
+    data_loader = DataLoader(dataset, batch_size=500, shuffle=True)
 
     preset_args = {
         'vocab': vocab,
-        'embedding_size': 24,
+        'embedding_size': 128,
         'h_dim': 256,
-        'z_dim': 24,
+        'z_dim': 32,
         'n_layers': 2,
         'bias': False,
         'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -122,7 +144,7 @@ if __name__ == '__main__':
     # Create model
     model = VRNN(preset_args)
     model.to(args['device'])
-    train_model(model, data_loader, args['device'], epochs=4)  # Adjust epochs as needed
+    train_model(model, data_loader, args['device'], args['learning_rate'], epochs=100)  # Adjust epochs as needed
 
 
 '''

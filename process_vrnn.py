@@ -6,34 +6,41 @@ from nltk.tokenize import sent_tokenize
 from datasets import load_dataset
 nltk.download('punkt')
 import os
+import re
 
 def tokenize_sentences(file_path):
     with open(file_path, 'r') as file:
         lines = file.readlines()
     
-    truncated_lines = lines[:int(0.0025 * len(lines))]
+    truncated_lines = lines[:int(0.01 * len(lines))]
     return [word_tokenize(line.lower()) for line in tqdm(truncated_lines, desc="Tokenizing")]
 
-def build_vocab(tokenized_sentences, min_word_freq=1):
-    word_freq = {}
-    for sentence in tqdm(tokenized_sentences):
-        for word in sentence:
-            if word not in word_freq:
-                word_freq[word] = 1
-            else:
-                word_freq[word] += 1
+from tqdm import tqdm
 
-    vocab = {word: index + 2 for index, (word, freq) in enumerate(word_freq.items()) if freq >= min_word_freq}
-    vocab['<unk>'] = 0  # Unknown words
-    vocab['<pad>'] = 1  # Padding token
+def build_vocab(tokenized_sentences, min_word_freq=5):
+    # Count word frequencies
+    word_freq = {}
+    for sentence in tqdm(tokenized_sentences, desc="Counting word frequencies"):
+        for word in sentence:
+            word_freq[word] = word_freq.get(word, 0) + 1
+
+    # Initialize vocabulary with special tokens
+    vocab = {'<unk>': 0, '<pad>': 1}
+
+    # Assign indices to words above the frequency threshold
+    index = len(vocab)  # Start indexing from the next available index
+    for word, freq in tqdm(word_freq.items(), desc="Building vocab"):
+        if freq >= min_word_freq:
+            vocab[word] = index
+            index += 1
 
     return vocab
+
 
 def vectorize_sentences(tokenized_sentences, vocab):
     vectorized_sentences = []
     for sentence in tqdm(tokenized_sentences, desc="Vectorizing"):
         vectorized_sentence = [vocab.get(word, vocab['<unk>']) for word in sentence]
-        print(vectorized_sentence)
         vectorized_sentences.append(vectorized_sentence)
     return vectorized_sentences
 
@@ -59,19 +66,24 @@ def remove_from_list(lst, denominator):
     return lst[:begin]
 
 file_path = 'data/vrnn_dailymail_cnn.list'  # Path to your file
-if not os.path.exists(file_path):
+redo = False
+if not os.path.exists(file_path) or redo == True:
     # CNN/Daily Mail dataset
     dataset = load_dataset('cnn_dailymail', '3.0.0')
 
     # Load dataset
     articles = remove_from_list(dataset['train']['article'], 3)
-    joined_articles = ''.join(articles)
+    #joined_articles = ''.join(articles)
+
+    # Remove punctuation except periods
+    for article in tqdm(articles):
+        article = re.sub(r'[^\w\s.]', '', article)
 
     # Get sentences
-    sentences = extract_sentences(joined_articles)
+    #sentences = extract_sentences(no_punct_articles)
 
     # save sentences to a .list file
-    with open(f'data/vrnn_dailymail_cnn.list', 'wb') as sentences_file:
+    with open(f'data/vrnn_dailymail_cnn_paragraph.list', 'wb') as sentences_file:
         sentences_file.write('\n'.join(sentences).encode('utf-8'))
 
 # Tokenize sentences
@@ -84,7 +96,7 @@ vocab = build_vocab(tokenized_sentences)
 vectorized_sentences = vectorize_sentences(tokenized_sentences, vocab)
 
 # Pad sentences
-desired_length = 100  # Change this to your desired length
+desired_length = 50  # Change this to your desired length
 padded_sentences = pad_sentences(vectorized_sentences, desired_length)
 np.save('data/vrnn_padded_sentences.npy', padded_sentences)
 with open('data/vrnn_vocabulary.json', 'w') as vocab_file:

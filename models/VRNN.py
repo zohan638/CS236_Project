@@ -98,51 +98,61 @@ class VRNN(nn.Module):
 
         #recurrence
         self.rnn = nn.GRU(self.hid_dim + self.hid_dim, self.hid_dim, self.n_layers, self.bias)
-    
+
+        # output layer
+        self.out = nn.Linear(self.hid_dim, self.input_dim)
+
     def forward(self, inputs, lengths):
         #Forward embedding layer
-        # print(inputs.shape)
         x = self.embed(inputs)
-        # print(emb.shape)
+
         #Pack the sequences for RNN
         # x = torch.nn.utils.rnn.pack_padded_sequence(emb, lengths).data
 
         all_enc_mean, all_enc_std = [], []
         all_dec_mean, all_dec_std = [], []
+        all_output_logits = []
         kld_loss = 0.0
         nll_loss = 0.0
-        # print(x.shape)
+        # h = torch.zeros(self.n_layers, x.shape[1], self.hid_dim, device=self.device)
         h = torch.zeros(self.n_layers, x.shape[1], self.hid_dim, device=self.device)
         for t in range(x.shape[0]):
-            # print(x[t].shape)
+            # Phi_x
             phi_x_t = self.phi_x(x[t])
 
-            #encoder
+            # Encoder
             enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
             enc_mean_t = self.enc_mean(enc_t)
             enc_std_t = self.enc_std(enc_t) 
 
-            #prior
+            # Prior
             prior_t = self.prior(h[-1])
             prior_mean_t = self.prior_mean(prior_t)
             prior_std_t = self.prior_std(prior_t)
 
-            #sampling and reparameterization
+            # Sampling and reparameterization
             z_t = self._reparameterized_sample(enc_mean_t, enc_std_t)
             phi_z_t = self.phi_z(z_t)
 
-            #decoder
+            # Decoder
             dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
             dec_std_t = self.dec_std(dec_t)
 
-            #recurrence
+            # Recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 
-            #computing losses
-            kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
-            nll_loss += self._nll_gauss(dec_mean_t, dec_std_t, x[t])
+            # Output logits
+            output_logits_t = self.out(dec_t)
+            all_output_logits.append(output_logits_t)
+
+            # Reconstruction loss
+            nll_loss += self.calculate_recon_loss(output_logits_t, inputs[t])
+            # nll_loss += self._nll_gauss(dec_mean_t, dec_std_t, x[t])
             # nll_loss += self._nll_bernoulli(dec_mean_t, x[t])
+
+            # KL Divergence loss
+            kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
 
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
@@ -173,20 +183,30 @@ class VRNN(nn.Module):
             #decoder
             dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
-            #dec_std_t = self.dec_std(dec_t)
 
+            # output logits
+            logits = self.out(dec_t)
+            probs = torch.softmax(logits, dim=1)
+            distribution = torch.distributions.Categorical(probs)
+            word_index = distribution.sample()  
+            word = self.find_closest_word(word_index, self.vocab)
+            sample_words.append(word)
+
+            # Update phi_x_t for next timestep
             phi_x_t = self.phi_x(dec_mean_t)
 
             #recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
-
-            sample[t] = dec_mean_t.data
-            sample_words.append(self.find_closest_word(sample[t], self.vocab))
         
         sample_string = ' '.join(sample_words)
 
         return sample, sample_string
+
+    def find_closest_word(self, word_index, vocab):
+        index_to_word = {index: word for word, index in vocab.items()}
+        return index_to_word[word_index.item()]
     
+    '''
     def find_closest_word(self, word_vector, vocab):
         word_vector = word_vector / torch.norm(word_vector)  # Normalize the embedding
         min_dist = float('inf')
@@ -200,12 +220,13 @@ class VRNN(nn.Module):
                 continue
 
             word_embedding = word_embedding / torch.norm(word_embedding)  # Normalize word_embedding
-            dist = cosine(word_vector.detach().numpy(), word_embedding.detach().numpy())
+            dist = cosine(word_vector.detach().cpu().numpy(), word_embedding.detach().cpu().numpy())
             if dist < min_dist:
                 min_dist = dist
                 closest_word_idx = idx
 
         return index_to_word[closest_word_idx]
+    '''
 
 
     def reset_parameters(self, stdv=1e-1):
@@ -229,7 +250,7 @@ class VRNN(nn.Module):
         kld_element =  (2 * torch.log(std_2 + EPS) - 2 * torch.log(std_1 + EPS) + 
             (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
             std_2.pow(2) - 1)
-        return	0.5 * torch.sum(kld_element)
+        return	0.5 * torch.mean(kld_element)
 
 
     def _nll_bernoulli(self, theta, x):
@@ -238,5 +259,10 @@ class VRNN(nn.Module):
 
     def _nll_gauss(self, mean, std, x):
         return torch.sum(torch.log(std + EPS) + np.log(2*torch.pi)/2 + (x - mean).pow(2)/(2*std.pow(2)))
+
+    def calculate_recon_loss(self, output_logits, targets):
+        criterion = nn.CrossEntropyLoss(reduction='mean')
+        reconstruction_loss = criterion(output_logits.view(-1, self.input_dim), targets.view(-1))
+        return reconstruction_loss
 
 
