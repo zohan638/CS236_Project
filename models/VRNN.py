@@ -2,34 +2,46 @@ import numpy as np
 import torch
 import torch.nn as nn
 import sys
+from scipy.spatial.distance import cosine
 
-EPS = torch.finfo(torch.float).eps # numerical logs
+# EPS = torch.finfo(torch.float).eps # numerical logs
+EPS = 1e-8
 
 class VRNN(nn.Module):
-    def __init__(self, bias=False, **kwargs):
+    def __init__(self, kwargs, bias=False):
         
         super(VRNN, self).__init__()
         #Base variables
         self.vocab = kwargs['vocab']
-        self.in_dim = len(self.vocab)
-        self.start_token = kwargs['start_token']
-        self.end_token = kwargs['end_token']
-        self.unk_token = kwargs['unk_token']
-        self.characters = kwargs['characters']
+        #self.start_token = kwargs['start_token']
+        #self.end_token = kwargs['end_token']
+        #self.unk_token = kwargs['unk_token']
+        #self.characters = kwargs['characters']
         self.embed_dim = kwargs['embedding_size']
-        self.hid_dim = kwargs['hidden_size']
-        self.n_layers = kwargs['num_layers']
-        self.nonlinearity = kwargs['nonlinearity']
-        self.z_dim = kwargs['self.z_dim']
+        self.input_dim = len(self.vocab)
+        self.hid_dim = kwargs['h_dim']
+        self.n_layers = kwargs['n_layers']
+        self.z_dim = kwargs['z_dim']
         self.bias = bias
         self.device = kwargs['device']
+
+        #Define the embedding layer
+        # self.embed = nn.Embedding(self.input_dim+1, self.embed_dim, padding_idx=self.input_dim)
+        self.embed = nn.Embedding(self.input_dim+1, self.embed_dim, padding_idx=self.vocab['<pad>'])
         
         #feature-extracting transformations
         self.phi_x = nn.Sequential(
-            nn.Linear(self.in_dim, self.hid_dim),
+            nn.Linear(self.embed_dim, self.hid_dim),
             nn.ReLU(),
             nn.Linear(self.hid_dim, self.hid_dim),
             nn.ReLU())
+        '''
+        self.phi_x = nn.Sequential(
+            nn.Linear(self.input_dim, self.hid_dim),
+            nn.ReLU(),
+            nn.Linear(self.hid_dim, self.hid_dim),
+            nn.ReLU())
+        '''
         self.phi_z = nn.Sequential(
             nn.Linear(self.z_dim, self.hid_dim),
             nn.ReLU())
@@ -61,31 +73,48 @@ class VRNN(nn.Module):
             nn.Linear(self.hid_dim, self.hid_dim),
             nn.ReLU())
         self.dec_std = nn.Sequential(
-            nn.Linear(self.hid_dim, self.in_dim),
+            nn.Linear(self.hid_dim, self.embed_dim),
             nn.Softplus())
-        #self.dec_mean = nn.Linear(self.hid_dim, self.in_dim)
+        #self.dec_std = nn.Linear(self.hid_dim, self.embed_dim)
+        #self.dec_mean = nn.Linear(self.hid_dim, self.embed_dim)
         self.dec_mean = nn.Sequential(
-            nn.Linear(self.hid_dim, self.in_dim),
+            nn.Linear(self.hid_dim, self.embed_dim),
             nn.Sigmoid())
+        '''
+        self.dec = nn.Sequential(
+            nn.Linear(self.hid_dim + self.hid_dim, self.hid_dim),
+            nn.ReLU(),
+            nn.Linear(self.hid_dim, self.hid_dim),
+            nn.ReLU())
+        self.dec_std = nn.Sequential(
+            nn.Linear(self.hid_dim, self.input_dim),
+            nn.Softplus())
+        # self.dec_std = nn.Linear(self.hid_dim, self.in_dim)
+        self.dec_mean = nn.Linear(self.hid_dim, self.input_dim)
+        # self.dec_mean = nn.Sequential(
+        #     nn.Linear(self.hid_dim, self.in_dim),
+        #     nn.Sigmoid())
+        '''
 
         #recurrence
         self.rnn = nn.GRU(self.hid_dim + self.hid_dim, self.hid_dim, self.n_layers, self.bias)
     
     def forward(self, inputs, lengths):
         #Forward embedding layer
-        emb = self.embed(inputs)
-
+        # print(inputs.shape)
+        x = self.embed(inputs)
+        # print(emb.shape)
         #Pack the sequences for RNN
-        x = torch.nn.utils.rnn.pack_padded_sequence(emb, lengths)
+        # x = torch.nn.utils.rnn.pack_padded_sequence(emb, lengths).data
 
         all_enc_mean, all_enc_std = [], []
         all_dec_mean, all_dec_std = [], []
-        kld_loss = 0
-        nll_loss = 0
-
-        h = torch.zeros(self.n_layers, x.size(1), self.h_dim, device=self.device)
-        for t in range(x.size(0)):
-
+        kld_loss = 0.0
+        nll_loss = 0.0
+        # print(x.shape)
+        h = torch.zeros(self.n_layers, x.shape[1], self.hid_dim, device=self.device)
+        for t in range(x.shape[0]):
+            # print(x[t].shape)
             phi_x_t = self.phi_x(x[t])
 
             #encoder
@@ -112,8 +141,8 @@ class VRNN(nn.Module):
 
             #computing losses
             kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
-            #nll_loss += self._nll_gauss(dec_mean_t, dec_std_t, x[t])
-            nll_loss += self._nll_bernoulli(dec_mean_t, x[t])
+            nll_loss += self._nll_gauss(dec_mean_t, dec_std_t, x[t])
+            # nll_loss += self._nll_bernoulli(dec_mean_t, x[t])
 
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
@@ -126,9 +155,10 @@ class VRNN(nn.Module):
     
     def sample(self, seq_len):
 
-        sample = torch.zeros(seq_len, self.x_dim, device=self.device)
+        sample = torch.zeros(seq_len, self.embed_dim, device=self.device)
+        sample_words = []
 
-        h = torch.zeros(self.n_layers, 1, self.h_dim, device=self.device)
+        h = torch.zeros(self.n_layers, 1, self.hid_dim, device=self.device)
         for t in range(seq_len):
 
             #prior
@@ -151,8 +181,31 @@ class VRNN(nn.Module):
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 
             sample[t] = dec_mean_t.data
+            sample_words.append(self.find_closest_word(sample[t], self.vocab))
+        
+        sample_string = ' '.join(sample_words)
 
-        return sample
+        return sample, sample_string
+    
+    def find_closest_word(self, word_vector, vocab):
+        word_vector = word_vector / torch.norm(word_vector)  # Normalize the embedding
+        min_dist = float('inf')
+        closest_word_idx = -1
+
+        index_to_word = {index: word for word, index in vocab.items()}
+
+        for idx, word_embedding in enumerate(self.embed.weight):
+            # Skip the padding_idx
+            if idx == self.vocab['<pad>']:
+                continue
+
+            word_embedding = word_embedding / torch.norm(word_embedding)  # Normalize word_embedding
+            dist = cosine(word_vector.detach().numpy(), word_embedding.detach().numpy())
+            if dist < min_dist:
+                min_dist = dist
+                closest_word_idx = idx
+
+        return index_to_word[closest_word_idx]
 
 
     def reset_parameters(self, stdv=1e-1):
@@ -184,6 +237,6 @@ class VRNN(nn.Module):
 
 
     def _nll_gauss(self, mean, std, x):
-        return torch.sum(torch.log(std + EPS) + torch.log(2*torch.pi)/2 + (x - mean).pow(2)/(2*std.pow(2)))
+        return torch.sum(torch.log(std + EPS) + np.log(2*torch.pi)/2 + (x - mean).pow(2)/(2*std.pow(2)))
 
 
