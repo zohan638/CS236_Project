@@ -8,12 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from models.VRNN import VRNN
+from models.BI_VRNN import BIDIRECTIONAL_VRNN
 from evaluate_roberta import get_roberta_score
 import warnings
 warnings.filterwarnings('ignore')
-
-os.environ['COMMANDLINE_ARGS'] = '--no-half'
 
 def make_folder_for_file(fileName):
     folder = os.path.dirname(fileName)
@@ -24,7 +22,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Train a bidirectional variational RNN')
 
     # Model hyperparameters
-    parser.add_argument('--rnn_type', type=str, default='LSTM', help='Type of RNN to use (LSTM or GRU)')
+    parser.add_argument('--rnn_type', type=str, default='GRU', help='Type of RNN to use (LSTM or GRU)')
     parser.add_argument('--embed_dim', type=int, default=128, help='Size of the embedding layer')
     parser.add_argument('--z_dim', default=28, type=int, help='Dimensionality of the latent variable')
     parser.add_argument('--h_dim', type=int, default=256, help='Size of the hidden recurrent layers')
@@ -32,9 +30,9 @@ def parse_arguments():
     parser.add_argument('--learning_rate', type=float, default=.001, help='Learning rate')
 
     # Training options
-    parser.add_argument('--sentence_or_article', type=str, default='sentence', help='Whether to use sentences or articles')
+    parser.add_argument('--sentence_or_article', type=str, default='article', help='Whether to use sentences or articles')
     parser.add_argument('--epochs', type=int, default=25, help='Number of epochs to train')
-    parser.add_argument('--batch_size', type=int, default=100, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('--seed', type=float, default=128, help='Random seed')
     parser.add_argument('--clip', default=2.0, type=int, help='Gradient clipping')
 
@@ -68,9 +66,10 @@ def calculate_lengths(batch, padding_idx):
 
 def get_file_index():
     # Get integer for output file name
-    output_dir = 'output/vrnn/intermediate/'
+    output_dir = 'output/bivrnn/intermediate/'
     largest_integer = 0
     if os.path.exists(output_dir):
+        # Get a list of files in the directory
         files = os.listdir(output_dir)
         
         for file in files:
@@ -104,28 +103,28 @@ def train_model(model, rnn_type, data_loader, device, learning_rate, epochs, sam
     for epoch in range(epochs):
         total_loss = 0
         total_kld_loss = 0
-        total_recon_loss = 0
+        total_nll_loss = 0
         for batch in tqdm(data_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             batch = batch.to(device)
             batch = batch.squeeze().transpose(0, 1)
             optimizer.zero_grad()
             lengths = calculate_lengths(batch, 1)
-            kld_loss, recon_loss, _, _ = model(rnn_type, batch, lengths=lengths)
-            loss = kld_loss + recon_loss
+            kld_loss, nll_loss, _, _ = model(rnn_type, batch, lengths=lengths) 
+            loss = kld_loss + nll_loss
             loss.backward()
             optimizer.step()
 
             nn.utils.clip_grad_norm_(model.parameters(), args['clip'])
             total_kld_loss += kld_loss.item()
-            total_recon_loss += recon_loss.item()
+            total_nll_loss += nll_loss.item()
             total_loss += loss.item()
-
-        print(f"Epoch {epoch+1}, KLD Loss: {round(total_kld_loss / len(data_loader), 2)}, Recon Loss: {round(total_recon_loss / len(data_loader))}, Loss: {round(total_loss / len(data_loader))}")
+        
+        print(f"Epoch {epoch+1}, KLD Loss: {round(total_kld_loss / len(data_loader), 2)}, Recon Loss: {round(total_nll_loss / len(data_loader), 2)}, Loss: {round(total_loss / len(data_loader), 2)}")
 
         # save model
         save_every = 1
         if epoch % save_every == 0:
-            fn = f"output/vrnn/intermediate/{sample_options['file_int']}_vrnn_{rnn_type}_{sample_options['sentence_or_article']}_{epoch}.pth"
+            fn = f"output/bivrnn/intermediate/{sample_options['file_int']}_bivrnn_{rnn_type}_{sample_options['sentence_or_article']}_{epoch}.pth"
             torch.save(model.state_dict(), fn)
 
         # Generate samples
@@ -133,17 +132,17 @@ def train_model(model, rnn_type, data_loader, device, learning_rate, epochs, sam
 
         # Add to output dictionary
         out_dict[f"epoch{epoch+1}"] = {"kld" : total_kld_loss / len(data_loader),
-                                        "rec" : total_recon_loss / len(data_loader),
+                                        "rec" : total_nll_loss / len(data_loader),
                                         "loss": total_loss / len(data_loader),
                                         "sample" : samples}
-
+    
     # Save output dictionary
     if sample_options['save_samples'] == True:
-        with open(f"plots/output_dicts/vrnn/{sample_options['file_int']}_vrnn_{rnn_type}_{sample_options['sentence_or_article']}.pkl", 'wb') as file:
+        with open(f"plots/output_dicts/bivrnn/{sample_options['file_int']}_bivrnn_{rnn_type}_{sample_options['sentence_or_article']}.pkl", 'wb') as file:
             pickle.dump(out_dict, file)
 
     # Save final model
-    fn = f"output/vrnn/{sample_options['file_int']}_vrnn_{rnn_type}_{sample_options['sentence_or_article']}_final.pth"
+    fn = f"output/bivrnn/{sample_options['file_int']}_bivrnn_{rnn_type}_{sample_options['sentence_or_article']}_final.pth"
     torch.save(model.state_dict(), fn)
 
 if __name__ == '__main__':
@@ -165,7 +164,7 @@ if __name__ == '__main__':
         padded_sequences = np.load('data/vrnn_padded_articles.npy')
         with open('data/vrnn_vocabulary_articles.json', 'r') as f:
             vocab = json.load(f)  
-    
+
     # Convert numpy array to PyTorch tensor
     padded_sequences_tensor = torch.from_numpy(padded_sequences).long()
 
@@ -195,107 +194,6 @@ if __name__ == '__main__':
     }
 
     # Train model
-    model = VRNN(model_parameters)
+    model = BIDIRECTIONAL_VRNN(model_parameters)
     model.to(args['device'])
-    train_model(model, args['rnn_type'], data_loader, args['device'], args['learning_rate'], epochs=50, sample_options=sample_options) 
-
-
-'''
-def train(epoch, trainset_batches, args):
-    train_loss = 0
-    for batch_idx, data in enumerate(trainset_batches):
-
-        #transforming data
-        data = data.to(args['device'])
-        # data = data.squeeze().transpose(0, 1) # (seq, batch, elem)
-        # data = (data - data.min()) / (data.max() - data.min())
-        # data = data.permute(1, 0)
-        # print(data.shape)
-        # exit()
-        
-        #forward + backward + optimize
-        optimizer.zero_grad()
-        lengths = [data.shape[0] for _ in range(data.shape[1])]
-        kld_loss, nll_loss, _, _ = model(data, lengths)
-        loss = kld_loss + nll_loss
-        loss.backward()
-        optimizer.step()
-
-        #grad norm clipping, only in pytorch version >= 1.10
-        nn.utils.clip_grad_norm_(model.parameters(), args['clip'])
-
-        #printing
-        if batch_idx % args['print_every'] == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\t KLD Loss: {:.6f} \t NLL Loss: {:.6f}'.format(
-                epoch, batch_idx * args['batch_size'], args['batch_size'] * (len(trainset_batches)//args['batch_size']),
-                100. / len(trainset_batches),
-                kld_loss / args['batch_size'],
-                nll_loss / args['batch_size']))
-            
-            # sample = model.sample(torch.tensor(28, device=args['device']))
-
-        train_loss += loss.item()
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, train_loss / len(trainset_batches)))
-
-if __name__ == '__main__':
-    args = parse_arguments()
-
-    #Initialisations
-    random.seed(args['seed'])
-    torch.manual_seed(args['seed'])
-    torch.cuda.manual_seed(args['seed'])
-    torch.backends.cudnn.deterministic = True
-    args['device'] = torch.device(('cuda:0' if torch.cuda.is_available() else 'cpu'))
-
-    #Read vocabulary, sentences and load data
-    args['vocab'],args['characters'] = read_vocabulary(**args)
-    args['num_seq'],args['max_words'] = count_sequences(**args)
-
-    trainset_exists = os.path.exists('data/trainset_dailymail_cnn.pth')
-    validset_exists = os.path.exists('data/validset_dailymail_cnn.pth')
-
-    if trainset_exists and validset_exists:
-        trainset = torch.load('data/trainset_dailymail_cnn.pth')
-        validset = torch.load('data/validset_dailymail_cnn.pth')
-    else:
-        trainset,validset = load_data(cv=True, **args)
-
-    num_batches = trainset.shape[1] // args['batch_size']
-    trainset_batches = torch.chunk(trainset, num_batches, dim=1)
-    # trainset_batches = [torch.tensor(batch, dtype=torch.float) for batch in trainset_batches]
-    # del trainset
-
-    # print('--------------------------------------------')
-    # print(trainset.shape)
-    # print(validset.shape)
-    # print(trainset_batches[0].shape)
-    # print(trainset_batches[10].shape)
-    # print('--------------------------------------------')
-    # torch.save(trainset, 'trainset_dailymail_cnn.pth')
-    # torch.save(validset, 'validset_dailymail_cnn.pth')
-
-    if args['verbose'] >= 1:
-        print('Number of training sequences: {0:d}'.format(trainset.shape[1]))
-        print('Number of cross-validaton sequences: {0:d}'.format(validset.shape[1]))
-
-    #manual seed
-    torch.manual_seed(args['seed'])
-
-    #init model + optimizer + datasets
-    model = VRNN(args)
-    model = model.to(args['device'])
-    optimizer = torch.optim.Adam(model.parameters(), lr=args['learning_rate'])
-
-    for epoch in range(1, args['n_epochs'] + 1):
-        #training + testing
-        train(epoch, trainset_batches, args)
-        # test(epoch)
-
-        #saving model
-        if epoch % args['save_every'] == 1:
-            fn = 'saves/vrnn_state_dict_'+str(epoch)+'.pth'
-            torch.save(model.state_dict(), fn)
-            print('Saved model to '+fn)
-'''
+    train_model(model, args['rnn_type'], data_loader, args['device'], args['learning_rate'], epochs=args['epochs'], sample_options=sample_options)

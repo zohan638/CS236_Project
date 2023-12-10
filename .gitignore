@@ -5,3 +5,6 @@ __pycache__/
 *.DS_store
 output/
 data/
+old/
+plots/
+VRNN/
