@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.VRNN_copy import VRNN
+from models.VRNN_for_Double import VRNN
 
 class BidirectionalVRNN(nn.Module):
     def __init__(self, kwargs, bias=False):

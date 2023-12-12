@@ -23,7 +23,7 @@ class VRNN(nn.Module):
         self.device = kwargs['device']
 
         # Define the embedding layer
-        self.embed = nn.Embedding(self.input_dim+1, self.embed_dim, padding_idx=self.vocab['<pad>'])
+        self.embed = nn.Embedding(self.input_dim + 2, self.embed_dim, padding_idx=self.vocab['<pad>'])
         
         #feature-extracting transformations
         self.phi_x = nn.Sequential(
